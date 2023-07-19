@@ -12,6 +12,18 @@ namespace SF.DocumentPoc
     {
         private static string ironPdfLicenseText = "To extract all of the page text, obtain a license key from https://ironpdf.com/licensing/";
         private readonly string AccessToken = "Insert Access Token For Respective Environment";
+
+        private readonly HttpClient _httpClient;
+        private readonly string QaDocBotApiBaseUrl = "https://qa.simplifai.ai/da/api/documentbot";
+        private readonly string DocumentBotId = "870c838e-e450-4d79-8d97-2d89bb3ee237";
+
+        public DocumentPocService()
+        {
+            _httpClient = new HttpClient();
+            _httpClient.DefaultRequestHeaders.Add("accept", "application/json");
+            _httpClient.DefaultRequestHeaders.Add("authorization", AccessToken);
+        }
+
         public async Task GenerateDocAndSendToBot()
         {
             var sw = new Stopwatch();
@@ -22,13 +34,13 @@ namespace SF.DocumentPoc
             // Get all text to put in a search index
             string AllText = CleanTextAndHtmlNewLineCharacters(PDF.ExtractAllText());
 
-            AllText = AllText.Replace("Omkar", "ABCD");
+            AllText = AllText.Replace("Omkar", "Suraj");
             var renderer = new ChromePdfRenderer();
 
             // Create a PDF from a HTML string using C#
             var pdf = renderer.RenderHtmlAsPdf(AllText);
 
-            var documentName = "Test4.pdf";
+            var documentName = "Test5.pdf";
             var botResponse = await SendDocumentToBot(pdf.BinaryData, documentName);
 
             IronTesseract ocr = new IronTesseract();
@@ -64,7 +76,6 @@ namespace SF.DocumentPoc
                 {
                     EntityId = new Guid("fba3155d-01cd-4698-a6d9-d4dc6640adce"),
                     WordIds = wordIds,
-                    //WordIds = JsonConvert.SerializeObject(wordIds.ToArray()),
                     Value = entityValue,
                     TaggedAuthor = 0,
                     DocumentId = documentId,
@@ -102,9 +113,6 @@ namespace SF.DocumentPoc
             string endpointUrl = "https://qa.simplifai.ai/da/externalapi/documentbot/870c838e-e450-4d79-8d97-2d89bb3ee237/ExternalDocumentProcessing/FromFiles?CustomerId=10468b3e-ea02-4f95-8273-479ae3a58d85";
             string apiKey = "OYGSRTENNWIHKWL";
 
-            //string endpointUrl = "http://localhost:5034/documentbot/0bd44a51-97d1-4618-8e8c-4cda3688a1ad/ExternalDocumentProcessing/FromFiles?CustomerId=10468b3e-ea02-4f95-8273-479ae3a58d85";
-            //string apiKey = "XMPYVDFCKNBIPVS";
-
             using (HttpClient client = new HttpClient())
             {
                 // Set the x-api-key header
@@ -123,8 +131,6 @@ namespace SF.DocumentPoc
                 if (response.IsSuccessStatusCode)
                 {
                     string responseContent = await response.Content.ReadAsStringAsync();
-                    //var responseFromBot = JsonConvert.DeserializeObject<List<BotHandlingData>>(responseContent);
-                    //Console.WriteLine("Response: " + responseContent);
                 }
                 else
                 {
@@ -137,95 +143,62 @@ namespace SF.DocumentPoc
 
         private async Task<DocumentSearchResponseDto> SearchForDocumentId(string requestBody)
         {
-            try
+            string url = $"{QaDocBotApiBaseUrl}/{DocumentBotId}/Document/search";
+            var searchResponse = new DocumentSearchResponseDto();
+
+            var content = new StringContent(requestBody, Encoding.UTF8, "application/json");
+            HttpResponseMessage response = _httpClient.PostAsync(url, content).GetAwaiter().GetResult();
+
+            if (response.IsSuccessStatusCode)
             {
-                using (HttpClient client = new HttpClient())
-                {
-                    string url = "https://qa.simplifai.ai/da/api/documentbot/870c838e-e450-4d79-8d97-2d89bb3ee237/Document/search";
-                    //string url = "http://localhost:5010/documentbot/0bd44a51-97d1-4618-8e8c-4cda3688a1ad/Document/search";
-
-                    var searchResponse = new DocumentSearchResponseDto();
-
-                    client.DefaultRequestHeaders.Add("accept", "application/json");
-                    client.DefaultRequestHeaders.Add("authorization", AccessToken);
-
-                    var content = new StringContent(requestBody, Encoding.UTF8, "application/json");
-                    content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-                    HttpResponseMessage response = client.PostAsync(url, content).GetAwaiter().GetResult();
-
-                    if (response.IsSuccessStatusCode)
-                    {
-                        string responseContent = await response.Content.ReadAsStringAsync();
-                        searchResponse = JsonConvert.DeserializeObject<DocumentSearchResponseDto>(responseContent);                        
-                    }
-                    else
-                    {
-                        string responseContent = await response.Content.ReadAsStringAsync();
-                        Console.WriteLine("Error: " + response.StatusCode);
-                    }
-                    return searchResponse;
-                }
+                string responseContent = await response.Content.ReadAsStringAsync();
+                searchResponse = JsonConvert.DeserializeObject<DocumentSearchResponseDto>(responseContent);
             }
-            catch (Exception ex)
+            else
             {
-                Console.WriteLine(ex.Message);
-                throw;
+                string responseContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine("Error: " + responseContent);
             }
+            return searchResponse;
         }
 
         private async Task<DocumentDetailsResponseDto> GetDocumentDetails(Guid documentId)
         {
-            using (HttpClient client = new HttpClient())
+            string url = $"{QaDocBotApiBaseUrl}/{DocumentBotId}/Document/{documentId}";
+
+            HttpResponseMessage response = _httpClient.GetAsync(url).GetAwaiter().GetResult();
+            var result = new DocumentDetailsResponseDto();
+
+            if (response.IsSuccessStatusCode)
             {
-                string url = $"https://qa.simplifai.ai/da/api/documentbot/870c838e-e450-4d79-8d97-2d89bb3ee237/Document/{documentId}";
-
-                var searchResponse = new DocumentSearchResponseDto();
-
-                client.DefaultRequestHeaders.Add("accept", "application/json");
-                client.DefaultRequestHeaders.Add("authorization", AccessToken);
-
-                HttpResponseMessage response = client.GetAsync(url).GetAwaiter().GetResult();
-                var result = new DocumentDetailsResponseDto();
-
-                if (response.IsSuccessStatusCode)
-                {
-                    string responseContent = await response.Content.ReadAsStringAsync();
-                    result = JsonConvert.DeserializeObject<DocumentDetailsResponseDto>(responseContent);
-                }
-                else
-                {
-                    string responseContent = await response.Content.ReadAsStringAsync();
-                    Console.WriteLine("Error: " + response.StatusCode);
-                }
-                return result;
+                string responseContent = await response.Content.ReadAsStringAsync();
+                result = JsonConvert.DeserializeObject<DocumentDetailsResponseDto>(responseContent);
             }
+            else
+            {
+                string responseContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine("Error: " + response.StatusCode);
+            }
+            return result;
         }
 
         private async Task TagDocument(string request, Guid documentId)
         {
-            using (HttpClient client = new HttpClient())
+            string url = $"{QaDocBotApiBaseUrl}/{DocumentBotId}/Document/{documentId}/details";
+
+            var requestBody = new StringContent(request);
+            requestBody.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+            HttpResponseMessage response = _httpClient.PutAsync(url, requestBody).GetAwaiter().GetResult();
+
+            if (response.IsSuccessStatusCode)
             {
-                string url = $"https://qa.simplifai.ai/da/api/documentbot/870c838e-e450-4d79-8d97-2d89bb3ee237/Document/{documentId}/details";
-
-                client.DefaultRequestHeaders.Add("accept", "application/json");
-                client.DefaultRequestHeaders.Add("authorization", AccessToken);
-
-                var requestBody = new StringContent(request);
-                requestBody.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-
-                HttpResponseMessage response = client.PutAsync(url, requestBody).GetAwaiter().GetResult();
-
-                if (response.IsSuccessStatusCode)
-                {
-                    string responseContent = await response.Content.ReadAsStringAsync();
-                }
-                else
-                {
-                    Console.WriteLine("Error: " + response.StatusCode);
-                }
+                string responseContent = await response.Content.ReadAsStringAsync();
             }
-
-
+            else
+            {
+                Console.WriteLine("Error: " + response.StatusCode);
+            }
         }
     }
 }
