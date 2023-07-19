@@ -11,24 +11,24 @@ namespace SF.DocumentPoc
     public class DocumentPocService
     {
         private static string ironPdfLicenseText = "To extract all of the page text, obtain a license key from https://ironpdf.com/licensing/";
-        private readonly string AccessToken = "Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjhENDZFMDk4OUZERUQwODA5NTYyNzFBRTQ0NTgyQTg3NkYwMkE3OTAiLCJ0eXAiOiJhdCtqd3QiLCJ4NXQiOiJqVWJnbUpfZTBJQ1ZZbkd1UkZncWgyOENwNUEifQ.eyJuYmYiOjE2ODk3NDYzOTQsImV4cCI6MTY4OTc4MjM5NCwiaXNzIjoiaHR0cHM6Ly9pZGVudGl0eS1xYS5zaW1wbGlmYWkuYWkiLCJhdWQiOiJzZi1kYS1hZG1pbi1hcGkiLCJjbGllbnRfaWQiOiJqcy5zZi5kYSIsInN1YiI6Im9ta2FyLnBhdGlsa2FyYWRlQHNpbXBsaWZhaS5haSIsImF1dGhfdGltZSI6MTY4OTc0NjM5MywiaWRwIjoibG9jYWwiLCJuYW1lIjoib21rYXIucGF0aWxrYXJhZGVAc2ltcGxpZmFpLmFpIiwidXNlcklkIjoiNWM1MjU4ODAtZTNjMi00MTI3LThkYjItYzM2MTdhMjM1MWRiIiwiY3VzdG9tZXJJZCI6IjEwNDY4YjNlLWVhMDItNGY5NS04MjczLTQ3OWFlM2E1OGQ4NSIsInNjb3BlIjpbIm9wZW5pZCIsInByb2ZpbGUiLCJzZi1kYS1hZG1pbi1hcGkiXSwiYW1yIjpbInB3ZCJdfQ.5WlnLyL0QJ9EV6Cy0yFPFtQqaLynaFN8lCgfHuBAhYbss4Q49dTWSxKx-JwRwKIf49cW8rZ6XkMTthsQIYugDudbBy2iFfrb4rsfOs0vHkY0EZ7fHcWAtHUinnAkE1upYdGlINtvT_UzPbXcTqYuDcldOkqTT-oakEeNlwSgeg7ED7ycLvIy3vvvI8XZReu68Rx_k6Urt4aL8H3eks4X9tf0LMeE7s5fsPRa2pgnj2RsWYA4RCWzoDNfD4KbuKGUrOQcfIiH8ZcwSXlHo-nHZiOzHc8fkb8JdPZS_30Fqd9hVLJcLEE_Hd5bjewptWVYu1ja5hMTlseA9MQ63TKeBg";
+        private readonly string AccessToken = "Insert Access Token For Respective Environment";
         public async Task GenerateDocAndSendToBot()
         {
             var sw = new Stopwatch();
             sw.Start();
-            var filePath = @"D:\\Others\\SF-Test\\DocumentPoc\\Documents\\PocDoc.pdf";
+            var filePath = @"D:\\Others\\SF-Test\\DocumentPocGit\\Documents\\PocDoc.pdf";
 
             using PdfDocument PDF = PdfDocument.FromFile(filePath);
             // Get all text to put in a search index
             string AllText = CleanTextAndHtmlNewLineCharacters(PDF.ExtractAllText());
 
-            AllText = AllText.Replace("Omkar", "Rohan");
+            AllText = AllText.Replace("Omkar", "ABCD");
             var renderer = new ChromePdfRenderer();
 
             // Create a PDF from a HTML string using C#
             var pdf = renderer.RenderHtmlAsPdf(AllText);
 
-            var documentName = "Test3.pdf";
+            var documentName = "Test4.pdf";
             var botResponse = await SendDocumentToBot(pdf.BinaryData, documentName);
 
             IronTesseract ocr = new IronTesseract();
@@ -200,14 +200,6 @@ namespace SF.DocumentPoc
                 return result;
             }
         }
-
-        //private Task GenerateTaggingData(DocumentDetails docDetails)
-        //{
-        //    var entities = new List<DocumentEntityTaggedCreateDto>();
-
-        //    var wordId
-
-        //}
 
         private async Task TagDocument(string request, Guid documentId)
         {
