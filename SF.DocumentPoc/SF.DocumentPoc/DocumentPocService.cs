@@ -4,7 +4,6 @@ using SF.DocumentPoc.Models;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
-using System.Reflection.Metadata;
 using System.Text;
 
 namespace SF.DocumentPoc
@@ -12,20 +11,37 @@ namespace SF.DocumentPoc
     public class DocumentPocService
     {
         private static string IronPdfLicenseText = "To extract all of the page text, obtain a license key from https://ironpdf.com/licensing/";
-        private readonly string AccessToken = "AccessToken";
 
         private readonly HttpClient _httpClient;
-        private readonly string QaDocBotApiBaseUrl = "https://qa.simplifai.ai/da/api/documentbot";
-        private readonly string DocumentBotId = "870c838e-e450-4d79-8d97-2d89bb3ee237";
+        string DocBotApiBaseUrl;
+        string DocumentBotId;
         private readonly string NameEntityId = "fba3155d-01cd-4698-a6d9-d4dc6640adce";
-        private readonly int DocumentCount = 5;
-        string TemplateFilepath = "";
+        int DocumentCount = 0;
+        string TemplateFilepath;
+        string ExternalApiEndpointUrl;
+        string ApiKey;
 
-        public DocumentPocService()
+        public DocumentPocService(int envChoice, string accessToken, string documentbotId, int noOfDocuments, string externalApiEndpointUrl, string apiKey)
         {
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("accept", "application/json");
-            _httpClient.DefaultRequestHeaders.Add("authorization", AccessToken);
+            _httpClient.DefaultRequestHeaders.Add("authorization", accessToken);
+            DocumentBotId = documentbotId;
+            DocumentCount = noOfDocuments;
+            ExternalApiEndpointUrl = externalApiEndpointUrl;
+            ApiKey = apiKey;
+            switch (envChoice)
+            {
+                case 1:
+                    DocBotApiBaseUrl = "https://dev.simplifai.ai/da/api/documentbot";
+                    break;
+                case 2:
+                    DocBotApiBaseUrl = "https://qa.simplifai.ai/da/api/documentbot";
+                    break;
+                case 3:
+                    DocBotApiBaseUrl = "https://staging.simplifai.ai/da/api/documentbot";
+                    break;
+            }
         }
 
         public async Task ReadFromExcel()
@@ -49,7 +65,7 @@ namespace SF.DocumentPoc
                     if(i == 99 || i == DocumentCount - 1)
                     {
                         await MarkDocumentsAsCompleted(documentIds);
-                        documentIds = new List<Guid>();
+                        documentIds.Clear();
                     }
                 }
                 //for(int column = 1; column < worksheet.Dimension.Columns; column++)
@@ -66,18 +82,18 @@ namespace SF.DocumentPoc
 
         public async Task<Guid> GenerateDocAndSendToBot(string textToReplace, int documentNo)
         {
-            var sw = new Stopwatch();
-            sw.Start();
+            var sw = Stopwatch.StartNew();
 
-            using PdfDocument PDF = PdfDocument.FromFile(TemplateFilepath);
-            string AllText = CleanTextAndHtmlNewLineCharacters(PDF.ExtractAllText());
+            using var PDFDocument = PdfDocument.FromFile(TemplateFilepath);
+            string AllText = CleanTextAndHtmlNewLineCharacters(PDFDocument.ExtractAllText());
 
             string replaceWith = GenerateRandomString(textToReplace.Length, false);
             AllText = AllText.Replace(textToReplace, replaceWith);
             var renderer = new ChromePdfRenderer();
             var pdf = renderer.RenderHtmlAsPdf(AllText);
 
-            var documentName = $"FourthTestRun_{documentNo}.pdf";
+            var documentName = $"SeventhTestRun_{documentNo}.pdf";
+            await using var ms = new MemoryStream(pdf.BinaryData);
             var botResponse = await SendDocumentToBot(pdf.BinaryData, documentName);
 
             var documentSearchRequestDto = new GetDocumentRequestDto()
@@ -90,7 +106,7 @@ namespace SF.DocumentPoc
             };
 
             var searchResult = await SearchForDocumentId(JsonConvert.SerializeObject(documentSearchRequestDto));
-            var documentId = searchResult.Result.Records.First().Id;
+            var documentId = searchResult.Result.Records[0].Id;
             var documentDetails = await GetDocumentDetails(documentId);
 
             var entities = new List<DocumentEntityTaggedReadDto>();
@@ -98,8 +114,8 @@ namespace SF.DocumentPoc
 
             var wordIds = new List<int>();
 
-            wordIds.Add(documentDetails.Result.DocumentJson.Pages[0].WordLevel.FirstOrDefault(w => w.Text == replaceWith).WordId);
-            var word = documentDetails.Result.DocumentJson.Pages[0].WordLevel.FirstOrDefault(w => w.Text == replaceWith);
+            wordIds.Add(documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == replaceWith).WordId);
+            var word = documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == replaceWith);
             var entityValue = word.Text + word.Space;
 
             entities.Add(new DocumentEntityTaggedReadDto
@@ -139,18 +155,18 @@ namespace SF.DocumentPoc
 
         private async Task<bool> SendDocumentToBot(byte[] file, string fileNameWithExtension)
         {
-            string endpointUrl = "https://qa.simplifai.ai/da/externalapi/documentbot/870c838e-e450-4d79-8d97-2d89bb3ee237/ExternalDocumentProcessing/FromFiles?CustomerId=10468b3e-ea02-4f95-8273-479ae3a58d85";
-            string apiKey = "OYGSRTENNWIHKWL";
+            //string endpointUrl = "https://qa.simplifai.ai/da/externalapi/documentbot/870c838e-e450-4d79-8d97-2d89bb3ee237/ExternalDocumentProcessing/FromFiles?CustomerId=10468b3e-ea02-4f95-8273-479ae3a58d85";
+            //string apiKey = "OYGSRTENNWIHKWL";
 
             using (HttpClient client = new HttpClient())
             {
-                client.DefaultRequestHeaders.Add("x-api-key", apiKey);
+                client.DefaultRequestHeaders.Add("x-api-key", ApiKey);
 
-                MultipartFormDataContent formData = new MultipartFormDataContent();
-                StreamContent fileContent = new StreamContent(new MemoryStream(file));
+                using var formData = new MultipartFormDataContent();
+                using var fileContent = new StreamContent(new MemoryStream(file));
 
                 formData.Add(fileContent, "files", fileNameWithExtension);
-                HttpResponseMessage response = client.PostAsync(endpointUrl, formData).GetAwaiter().GetResult();
+                var response = client.PostAsync(ExternalApiEndpointUrl, formData).GetAwaiter().GetResult();
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -167,11 +183,11 @@ namespace SF.DocumentPoc
 
         private async Task<DocumentSearchResponseDto> SearchForDocumentId(string requestBody)
         {
-            string url = $"{QaDocBotApiBaseUrl}/{DocumentBotId}/Document/search";
+            string url = $"{DocBotApiBaseUrl}/{DocumentBotId}/Document/search";
             var searchResponse = new DocumentSearchResponseDto();
 
-            var content = new StringContent(requestBody, Encoding.UTF8, "application/json");
-            HttpResponseMessage response = _httpClient.PostAsync(url, content).GetAwaiter().GetResult();
+            using var content = new StringContent(requestBody, Encoding.UTF8, "application/json");
+            var response = _httpClient.PostAsync(url, content).GetAwaiter().GetResult();
 
             if (response.IsSuccessStatusCode)
             {
@@ -188,9 +204,9 @@ namespace SF.DocumentPoc
 
         private async Task<DocumentDetailsResponseDto> GetDocumentDetails(Guid documentId)
         {
-            string url = $"{QaDocBotApiBaseUrl}/{DocumentBotId}/Document/{documentId}";
+            string url = $"{DocBotApiBaseUrl}/{DocumentBotId}/Document/{documentId}";
 
-            HttpResponseMessage response = _httpClient.GetAsync(url).GetAwaiter().GetResult();
+            var response = _httpClient.GetAsync(url).GetAwaiter().GetResult();
             var result = new DocumentDetailsResponseDto();
 
             if (response.IsSuccessStatusCode)
@@ -208,12 +224,12 @@ namespace SF.DocumentPoc
 
         private async Task TagDocument(string request, Guid documentId)
         {
-            string url = $"{QaDocBotApiBaseUrl}/{DocumentBotId}/Document/{documentId}/details";
+            string url = $"{DocBotApiBaseUrl}/{DocumentBotId}/Document/{documentId}/details";
 
-            var requestBody = new StringContent(request);
+            using var requestBody = new StringContent(request);
             requestBody.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
-            HttpResponseMessage response = _httpClient.PutAsync(url, requestBody).GetAwaiter().GetResult();
+            var response = _httpClient.PutAsync(url, requestBody).GetAwaiter().GetResult();
 
             if (response.IsSuccessStatusCode)
             {
@@ -227,7 +243,7 @@ namespace SF.DocumentPoc
 
         private async Task<bool> MarkDocumentsAsCompleted(IEnumerable<Guid> documentIds)
         {
-            string url = $"{QaDocBotApiBaseUrl}/{DocumentBotId}/Document/status";
+            string url = $"{DocBotApiBaseUrl}/{DocumentBotId}/Document/status";
 
             var requestData = new
             {
@@ -237,7 +253,7 @@ namespace SF.DocumentPoc
             var jsonRequest = JsonConvert.SerializeObject(requestData);
             var content = new StringContent(jsonRequest, Encoding.UTF8, "application/json");
 
-            HttpResponseMessage response = _httpClient.PutAsync(url, content).GetAwaiter().GetResult();
+            var response = _httpClient.PutAsync(url, content).GetAwaiter().GetResult();
 
             if (response.IsSuccessStatusCode)
             {
