@@ -4,4 +4,5 @@ using SF.DocumentPoc;
 Console.WriteLine("Hello, World!");
 
 var test = new DocumentPocService();
-test.GenerateDocAndSendToBot(); 
+//test.GenerateDocAndSendToBot(); 
+test.ReadFromExcel(); 

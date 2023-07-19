@@ -1,21 +1,25 @@
-﻿using IronOcr;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
+using OfficeOpenXml;
 using SF.DocumentPoc.Models;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Reflection.Metadata;
 using System.Text;
 
 namespace SF.DocumentPoc
 {
     public class DocumentPocService
     {
-        private static string ironPdfLicenseText = "To extract all of the page text, obtain a license key from https://ironpdf.com/licensing/";
-        private readonly string AccessToken = "Insert Access Token For Respective Environment";
+        private static string IronPdfLicenseText = "To extract all of the page text, obtain a license key from https://ironpdf.com/licensing/";
+        private readonly string AccessToken = "AccessToken";
 
         private readonly HttpClient _httpClient;
         private readonly string QaDocBotApiBaseUrl = "https://qa.simplifai.ai/da/api/documentbot";
         private readonly string DocumentBotId = "870c838e-e450-4d79-8d97-2d89bb3ee237";
+        private readonly string NameEntityId = "fba3155d-01cd-4698-a6d9-d4dc6640adce";
+        private readonly int DocumentCount = 5;
+        string TemplateFilepath = "";
 
         public DocumentPocService()
         {
@@ -24,63 +28,88 @@ namespace SF.DocumentPoc
             _httpClient.DefaultRequestHeaders.Add("authorization", AccessToken);
         }
 
-        public async Task GenerateDocAndSendToBot()
+        public async Task ReadFromExcel()
+        {
+            string filePath = @"D:\\Others\\SF-Test\\DocumentPocGit\\Documents\\DataExcel.xlsx";
+            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+            var excelPackage = new ExcelPackage(new FileInfo(filePath));
+            ExcelWorksheet worksheet = excelPackage.Workbook.Worksheets[0];
+
+            for(int row = 2; row <= worksheet.Dimension.Rows; row++)
+            {
+                var textToReplace = worksheet.Cells[row, 1].Value?.ToString();
+                TemplateFilepath = worksheet.Cells[row, 2].Value?.ToString();
+                var documentIds = new List<Guid>();
+
+                for(int i = 0; i < DocumentCount; i++)
+                {
+                    var docuementId = await GenerateDocAndSendToBot(textToReplace, i+1);
+                    documentIds.Add(docuementId);
+
+                    if(i == 99 || i == DocumentCount - 1)
+                    {
+                        await MarkDocumentsAsCompleted(documentIds);
+                        documentIds = new List<Guid>();
+                    }
+                }
+                //for(int column = 1; column < worksheet.Dimension.Columns; column++)
+                //{
+                //    var name = worksheet.Cells[row, column].Value?.ToString();
+
+                //    for(int i = 0; i < DocumentCount; i++)
+                //    {
+
+                //    }
+                //}
+            }
+        }
+
+        public async Task<Guid> GenerateDocAndSendToBot(string textToReplace, int documentNo)
         {
             var sw = new Stopwatch();
             sw.Start();
-            var filePath = @"D:\\Others\\SF-Test\\DocumentPocGit\\Documents\\PocDoc.pdf";
 
-            using PdfDocument PDF = PdfDocument.FromFile(filePath);
-            // Get all text to put in a search index
+            using PdfDocument PDF = PdfDocument.FromFile(TemplateFilepath);
             string AllText = CleanTextAndHtmlNewLineCharacters(PDF.ExtractAllText());
 
-            AllText = AllText.Replace("Omkar", "Suraj");
+            string replaceWith = GenerateRandomString(textToReplace.Length, false);
+            AllText = AllText.Replace(textToReplace, replaceWith);
             var renderer = new ChromePdfRenderer();
-
-            // Create a PDF from a HTML string using C#
             var pdf = renderer.RenderHtmlAsPdf(AllText);
 
-            var documentName = "Test5.pdf";
+            var documentName = $"FourthTestRun_{documentNo}.pdf";
             var botResponse = await SendDocumentToBot(pdf.BinaryData, documentName);
 
-            IronTesseract ocr = new IronTesseract();
-            OcrInput input = new OcrInput();
-            input.AddPdf(filePath);
-            var res = ocr.Read(input);
+            var documentSearchRequestDto = new GetDocumentRequestDto()
+            {
+                SearchText = documentName,
+                StartDate = DateTime.ParseExact("1999-12-31T18:30:00.000Z", "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
+                EndDate = DateTime.UtcNow,
+                PageNumber = 1,
+                PageSize = 10,
+            };
 
-            //var wordId = res.Words.Where(w => w.Text == "Omkar").Select(w => w.WordNumber).ToList();
-            var wordIndexes = res.Words.Select((w, index) => w.Text == "Omkar" ? index : -1).Where(index => index != -1).ToList();
-
-            var documentSearchRequestDto = new GetDocumentRequestDto();
-            documentSearchRequestDto.SearchText = documentName;
-            documentSearchRequestDto.StartDate = DateTime.ParseExact("1999-12-31T18:30:00.000Z", "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
-            documentSearchRequestDto.EndDate = DateTime.UtcNow;
-            documentSearchRequestDto.PageNumber = 1;
-            documentSearchRequestDto.PageSize = 10;
             var searchResult = await SearchForDocumentId(JsonConvert.SerializeObject(documentSearchRequestDto));
             var documentId = searchResult.Result.Records.First().Id;
             var documentDetails = await GetDocumentDetails(documentId);
 
             var entities = new List<DocumentEntityTaggedReadDto>();
             var intents = new List<DocumentIntentTaggedReadDto>();
-            var documentTypeLink = new List<DocumentTypeLinkReadDto>();
 
             var wordIds = new List<int>();
-            foreach(var index in wordIndexes)
-            {
-                wordIds.Add(index);
-                var word = documentDetails.Result.DocumentJson.Pages[0].WordLevel.FirstOrDefault(w => w.WordId == index);
-                var entityValue = word.Text + word.Space;
 
-                entities.Add(new DocumentEntityTaggedReadDto
-                {
-                    EntityId = new Guid("fba3155d-01cd-4698-a6d9-d4dc6640adce"),
-                    WordIds = wordIds,
-                    Value = entityValue,
-                    TaggedAuthor = 0,
-                    DocumentId = documentId,
-                });
-            }
+            wordIds.Add(documentDetails.Result.DocumentJson.Pages[0].WordLevel.FirstOrDefault(w => w.Text == replaceWith).WordId);
+            var word = documentDetails.Result.DocumentJson.Pages[0].WordLevel.FirstOrDefault(w => w.Text == replaceWith);
+            var entityValue = word.Text + word.Space;
+
+            entities.Add(new DocumentEntityTaggedReadDto
+            {
+                EntityId = new Guid(NameEntityId),
+                WordIds = wordIds,
+                Value = entityValue,
+                TaggedAuthor = 0,
+                DocumentId = documentId,
+            });
 
             var updateDocumentDetailsRequest = new UpdateDocumentDetailsDto()
             {
@@ -96,13 +125,13 @@ namespace SF.DocumentPoc
             await TagDocument(JsonConvert.SerializeObject(updateDocumentDetailsRequest), documentId);
             
             sw.Stop();
-            Console.WriteLine($"done - {sw.Elapsed.Seconds}");
-
+            Console.WriteLine($"process completed for document - {documentNo} - {sw.Elapsed.Seconds}");
+            return documentId;
         }
 
         private static string CleanTextAndHtmlNewLineCharacters(string originalString)
         {
-            originalString = originalString.Replace(ironPdfLicenseText, "");
+            originalString = originalString.Replace(IronPdfLicenseText, "");
             originalString = originalString.Replace("\r\n", "</br>");
             originalString = originalString.Replace("\n", "</br>");
             return $"{originalString}";
@@ -115,16 +144,11 @@ namespace SF.DocumentPoc
 
             using (HttpClient client = new HttpClient())
             {
-                // Set the x-api-key header
                 client.DefaultRequestHeaders.Add("x-api-key", apiKey);
 
-                // Create a multipart form data content
                 MultipartFormDataContent formData = new MultipartFormDataContent();
-
-                // Create a stream content for the file
                 StreamContent fileContent = new StreamContent(new MemoryStream(file));
 
-                // Add the file content to the form data
                 formData.Add(fileContent, "files", fileNameWithExtension);
                 HttpResponseMessage response = client.PostAsync(endpointUrl, formData).GetAwaiter().GetResult();
 
@@ -198,7 +222,51 @@ namespace SF.DocumentPoc
             else
             {
                 Console.WriteLine("Error: " + response.StatusCode);
+            }             
+        }
+
+        private async Task<bool> MarkDocumentsAsCompleted(IEnumerable<Guid> documentIds)
+        {
+            string url = $"{QaDocBotApiBaseUrl}/{DocumentBotId}/Document/status";
+
+            var requestData = new
+            {
+                documentIds = documentIds,
+                documentStatus = 2
+            };
+            var jsonRequest = JsonConvert.SerializeObject(requestData);
+            var content = new StringContent(jsonRequest, Encoding.UTF8, "application/json");
+
+            HttpResponseMessage response = _httpClient.PutAsync(url, content).GetAwaiter().GetResult();
+
+            if (response.IsSuccessStatusCode)
+            {
+                string responseContent = await response.Content.ReadAsStringAsync();
+                return true;
             }
+            else
+            {
+                Console.WriteLine("Error: " + response.StatusCode);
+                return false;
+            }
+        }   
+
+        private string GenerateRandomString(int length, bool numeric)
+        {
+            const string alphanumericChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+            const string numericChars = "0123456789";
+
+            var chars = numeric ? numericChars : alphanumericChars;
+            var random = new Random();
+            var sb = new StringBuilder(length);
+
+            for (int i = 0; i < length; i++)
+            {
+                int index = random.Next(0, chars.Length);
+                sb.Append(chars[index]);
+            }
+
+            return sb.ToString();
         }
     }
 }
