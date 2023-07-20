@@ -25,9 +25,12 @@ var apiKey = Console.ReadLine();
 Console.WriteLine("\n\nEnter Access Token : ");
 var accessToken = Console.ReadLine();
 
+Console.WriteLine("\n\nEnter File Path For Excel : ");
+var excelFilePath = Console.ReadLine();
+
 Console.WriteLine("\n\nEnter no of documents to send to the bot : ");
 var noOfDocuments = Console.ReadLine();
 
-var test = new DocumentPocService(int.Parse(envChoice), accessToken, documentbotId, int.Parse(noOfDocuments), externalApiEndpoint, apiKey);
+var test = new DocumentPocService(int.Parse(envChoice), accessToken, documentbotId, int.Parse(noOfDocuments), externalApiEndpoint, apiKey, excelFilePath);
 //test.GenerateDocAndSendToBot(); 
 test.ReadFromExcel(); 

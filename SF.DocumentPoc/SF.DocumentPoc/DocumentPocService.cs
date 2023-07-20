@@ -20,8 +20,9 @@ namespace SF.DocumentPoc
         string TemplateFilepath;
         string ExternalApiEndpointUrl;
         string ApiKey;
+        string ExcelFilePath;
 
-        public DocumentPocService(int envChoice, string accessToken, string documentbotId, int noOfDocuments, string externalApiEndpointUrl, string apiKey)
+        public DocumentPocService(int envChoice, string accessToken, string documentbotId, int noOfDocuments, string externalApiEndpointUrl, string apiKey, string excelFilePath)
         {
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("accept", "application/json");
@@ -30,6 +31,7 @@ namespace SF.DocumentPoc
             DocumentCount = noOfDocuments;
             ExternalApiEndpointUrl = externalApiEndpointUrl;
             ApiKey = apiKey;
+            ExcelFilePath = excelFilePath;
             switch (envChoice)
             {
                 case 1:
@@ -46,9 +48,8 @@ namespace SF.DocumentPoc
 
         public async Task ReadFromExcel()
         {
-            string filePath = @"D:\\Others\\SF-Test\\DocumentPocGit\\Documents\\DataExcel.xlsx";
             ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-            var excelPackage = new ExcelPackage(new FileInfo(filePath));
+            var excelPackage = new ExcelPackage(new FileInfo(ExcelFilePath));
             ExcelWorksheet worksheet = excelPackage.Workbook.Worksheets[0];
 
             for(int row = 2; row <= worksheet.Dimension.Rows; row++)
@@ -57,12 +58,12 @@ namespace SF.DocumentPoc
                 TemplateFilepath = worksheet.Cells[row, 2].Value?.ToString();
                 var documentIds = new List<Guid>();
 
-                for(int i = 0; i < DocumentCount; i++)
+                for(int i = 1; i <= DocumentCount; i++)
                 {
                     var docuementId = await GenerateDocAndSendToBot(textToReplace, i+1);
                     documentIds.Add(docuementId);
 
-                    if(i == 99 || i == DocumentCount - 1)
+                    if((DocumentCount - i)%100 == 0 || i == DocumentCount)
                     {
                         await MarkDocumentsAsCompleted(documentIds);
                         documentIds.Clear();
@@ -87,12 +88,12 @@ namespace SF.DocumentPoc
             using var PDFDocument = PdfDocument.FromFile(TemplateFilepath);
             string AllText = CleanTextAndHtmlNewLineCharacters(PDFDocument.ExtractAllText());
 
-            string replaceWith = GenerateRandomString(textToReplace.Length, false);
+            string replaceWith = GenerateRandomString(textToReplace);
             AllText = AllText.Replace(textToReplace, replaceWith);
             var renderer = new ChromePdfRenderer();
             var pdf = renderer.RenderHtmlAsPdf(AllText);
 
-            var documentName = $"SeventhTestRun_{documentNo}.pdf";
+            var documentName = $"8TestRun_{documentNo}.pdf";
             await using var ms = new MemoryStream(pdf.BinaryData);
             var botResponse = await SendDocumentToBot(pdf.BinaryData, documentName);
 
@@ -155,9 +156,6 @@ namespace SF.DocumentPoc
 
         private async Task<bool> SendDocumentToBot(byte[] file, string fileNameWithExtension)
         {
-            //string endpointUrl = "https://qa.simplifai.ai/da/externalapi/documentbot/870c838e-e450-4d79-8d97-2d89bb3ee237/ExternalDocumentProcessing/FromFiles?CustomerId=10468b3e-ea02-4f95-8273-479ae3a58d85";
-            //string apiKey = "OYGSRTENNWIHKWL";
-
             using (HttpClient client = new HttpClient())
             {
                 client.DefaultRequestHeaders.Add("x-api-key", ApiKey);
@@ -267,12 +265,51 @@ namespace SF.DocumentPoc
             }
         }   
 
-        private string GenerateRandomString(int length, bool numeric)
+        //private string GenerateRandomString(int length, bool numeric)
+        //{
+        //    const string alphanumericChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        //    const string numericChars = "0123456789";
+
+        //    var chars = numeric ? numericChars : alphanumericChars;
+        //    var random = new Random();
+        //    var sb = new StringBuilder(length);
+
+        //    for (int i = 0; i < length; i++)
+        //    {
+        //        int index = random.Next(0, chars.Length);
+        //        sb.Append(chars[index]);
+        //    }
+
+        //    return sb.ToString();
+        //}
+
+        private string GenerateRandomString(string inputString)
         {
-            const string alphanumericChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+            const string alphabeticChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
             const string numericChars = "0123456789";
 
-            var chars = numeric ? numericChars : alphanumericChars;
+            bool containsAlphabets = inputString.All(char.IsLetter);
+            bool containsNumbers = inputString.All(char.IsDigit);
+
+            if (containsAlphabets && !containsNumbers)
+            {
+                return GenerateRandomStringOfType(alphabeticChars, inputString.Length);
+            }
+            else if (!containsAlphabets && containsNumbers)
+            {
+                return GenerateRandomStringOfType(numericChars, inputString.Length);
+            }
+            else
+            {
+                // If the inputString contains both alphabets and numbers, 
+                // choose randomly between alphanumeric and numeric characters
+                string chars = (new Random().Next(0, 2) == 0) ? alphabeticChars : numericChars;
+                return GenerateRandomStringOfType(chars, inputString.Length);
+            }
+        }
+
+        private string GenerateRandomStringOfType(string chars, int length)
+        {
             var random = new Random();
             var sb = new StringBuilder(length);
 
