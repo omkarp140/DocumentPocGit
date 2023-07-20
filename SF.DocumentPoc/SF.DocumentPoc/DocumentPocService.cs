@@ -22,8 +22,9 @@ namespace SF.DocumentPoc
         string ExternalApiEndpointUrl;
         string ApiKey;
         string ExcelFilePath;
+        string DocNamePrefix;
 
-        public DocumentPocService(int envChoice, string accessToken, string documentbotId, int noOfDocuments, string externalApiEndpointUrl, string apiKey, string excelFilePath)
+        public DocumentPocService(int envChoice, string accessToken, string documentbotId, int noOfDocuments, string externalApiEndpointUrl, string apiKey, string excelFilePath, string docNamePrefix)
         {
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("accept", "application/json");
@@ -33,6 +34,7 @@ namespace SF.DocumentPoc
             ExternalApiEndpointUrl = externalApiEndpointUrl;
             ApiKey = apiKey;
             ExcelFilePath = excelFilePath;
+            DocNamePrefix = docNamePrefix;
             switch (envChoice)
             {
                 case 1:
@@ -45,6 +47,7 @@ namespace SF.DocumentPoc
                     DocBotApiBaseUrl = "https://staging.simplifai.ai/da/api/documentbot";
                     break;
             }
+            DocNamePrefix = docNamePrefix;
         }
 
         public async Task ReadFromExcel()
@@ -78,7 +81,7 @@ namespace SF.DocumentPoc
 
                 for(int i = 1; i <= DocumentCount; i++)
                 {
-                    var docuementId = await GenerateDocAndSendToBot(textReplacementList, i, $"NewPdf_Template_{row-1}_Test_{i}.pdf");
+                    var docuementId = await GenerateDocAndSendToBot(textReplacementList, i, $"{DocNamePrefix}_Template_{row-1}_Test_{i}.pdf");
                     documentIds.Add(docuementId);
 
                     if((DocumentCount - i)%100 == 0 || i == DocumentCount)
