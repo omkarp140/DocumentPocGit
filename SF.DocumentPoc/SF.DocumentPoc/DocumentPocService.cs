@@ -1,6 +1,7 @@
 ﻿using Newtonsoft.Json;
 using OfficeOpenXml;
 using SF.DocumentPoc.Models;
+using System.Data.Common;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
@@ -15,7 +16,7 @@ namespace SF.DocumentPoc
         private readonly HttpClient _httpClient;
         string DocBotApiBaseUrl;
         string DocumentBotId;
-        private readonly string NameEntityId = "fba3155d-01cd-4698-a6d9-d4dc6640adce";
+        //private readonly string NameEntityId = "fba3155d-01cd-4698-a6d9-d4dc6640adce";
         int DocumentCount = 0;
         string TemplateFilepath;
         string ExternalApiEndpointUrl;
@@ -48,19 +49,36 @@ namespace SF.DocumentPoc
 
         public async Task ReadFromExcel()
         {
+            Console.WriteLine("\n\nProcess Started !!!\n\n");
             ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
             var excelPackage = new ExcelPackage(new FileInfo(ExcelFilePath));
             ExcelWorksheet worksheet = excelPackage.Workbook.Worksheets[0];
+            var entities = await GetDocumentbotEntities(DocumentBotId);
 
-            for(int row = 2; row <= worksheet.Dimension.Rows; row++)
+            for (int colIndex = 1; colIndex < worksheet.Dimension.Columns; colIndex++)
             {
-                var textToReplace = worksheet.Cells[row, 1].Value?.ToString();
-                TemplateFilepath = worksheet.Cells[row, 2].Value?.ToString();
+                //var title = worksheet.Cells[1, colIndex].Value?.ToString();
+                entities.Find(e => e.Name.ToLower() == worksheet.Cells[1, colIndex].Value?.ToString().ToLower())!.ExcelIndex = colIndex;
+            }
+
+            for (int row = 2; row <= worksheet.Dimension.Rows; row++)
+            {
+                TemplateFilepath = worksheet.Cells[row, worksheet.Dimension.Columns].Value?.ToString();
+                var textReplacementList = new List<TextReplacementHelperDto>();
                 var documentIds = new List<Guid>();
+
+                for (int column = 1; column < worksheet.Dimension.Columns; column++)
+                {
+                    textReplacementList.Add(new TextReplacementHelperDto
+                    {
+                        EntityId = entities.Find(e => e.ExcelIndex == column).Id,
+                        OldText = worksheet.Cells[row, column].Value?.ToString()
+                    });
+                }
 
                 for(int i = 1; i <= DocumentCount; i++)
                 {
-                    var docuementId = await GenerateDocAndSendToBot(textToReplace, i+1);
+                    var docuementId = await GenerateDocAndSendToBot(textReplacementList, i, $"NewPdf_Template_{row-1}_Test_{i}.pdf");
                     documentIds.Add(docuementId);
 
                     if((DocumentCount - i)%100 == 0 || i == DocumentCount)
@@ -69,31 +87,26 @@ namespace SF.DocumentPoc
                         documentIds.Clear();
                     }
                 }
-                //for(int column = 1; column < worksheet.Dimension.Columns; column++)
-                //{
-                //    var name = worksheet.Cells[row, column].Value?.ToString();
-
-                //    for(int i = 0; i < DocumentCount; i++)
-                //    {
-
-                //    }
-                //}
             }
         }
 
-        public async Task<Guid> GenerateDocAndSendToBot(string textToReplace, int documentNo)
+        public async Task<Guid> GenerateDocAndSendToBot(List<TextReplacementHelperDto> textReplacementList, int documentNo, string documentName)
         {
             var sw = Stopwatch.StartNew();
 
             using var PDFDocument = PdfDocument.FromFile(TemplateFilepath);
             string AllText = CleanTextAndHtmlNewLineCharacters(PDFDocument.ExtractAllText());
 
-            string replaceWith = GenerateRandomString(textToReplace);
-            AllText = AllText.Replace(textToReplace, replaceWith);
+            foreach(var entity in textReplacementList)
+            {
+                entity.NewText = GenerateRandomString(entity.OldText);
+                AllText = AllText.Replace(entity.OldText, entity.NewText);
+            }
+
             var renderer = new ChromePdfRenderer();
             var pdf = renderer.RenderHtmlAsPdf(AllText);
 
-            var documentName = $"8TestRun_{documentNo}.pdf";
+            //var documentName = $"PdfDynamicTest_{documentNo}.pdf";
             await using var ms = new MemoryStream(pdf.BinaryData);
             var botResponse = await SendDocumentToBot(pdf.BinaryData, documentName);
 
@@ -113,20 +126,21 @@ namespace SF.DocumentPoc
             var entities = new List<DocumentEntityTaggedReadDto>();
             var intents = new List<DocumentIntentTaggedReadDto>();
 
-            var wordIds = new List<int>();
-
-            wordIds.Add(documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == replaceWith).WordId);
-            var word = documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == replaceWith);
-            var entityValue = word.Text + word.Space;
-
-            entities.Add(new DocumentEntityTaggedReadDto
+            foreach(var item in textReplacementList)
             {
-                EntityId = new Guid(NameEntityId),
-                WordIds = wordIds,
-                Value = entityValue,
-                TaggedAuthor = 0,
-                DocumentId = documentId,
-            });
+                var wordIds = new List<int>();
+                wordIds.Add(documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == item.NewText).WordId);
+                var word = documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == item.NewText);
+
+                entities.Add(new DocumentEntityTaggedReadDto
+                {
+                    EntityId = item.EntityId,
+                    WordIds = wordIds,
+                    Value = word.Text + word.Space,
+                    TaggedAuthor = 0,
+                    DocumentId = documentId,
+                });
+            }
 
             var updateDocumentDetailsRequest = new UpdateDocumentDetailsDto()
             {
@@ -263,7 +277,26 @@ namespace SF.DocumentPoc
                 Console.WriteLine("Error: " + response.StatusCode);
                 return false;
             }
-        }   
+        }
+
+        private async Task<List<EntityHelperDto>> GetDocumentbotEntities(string documentbotId)
+        {
+            string url = $"{DocBotApiBaseUrl}/{documentbotId}/entity/GetDocumentbotEntities?pageNumber=1&pageSize=100&name=&value=0&documentbotId={documentbotId}";
+            var entityResponse = new EntityResponseDto();
+
+            HttpResponseMessage response = _httpClient.GetAsync(url).GetAwaiter().GetResult();
+
+            if (response.IsSuccessStatusCode)
+            {
+                string responseContent = await response.Content.ReadAsStringAsync();
+                entityResponse = JsonConvert.DeserializeObject<EntityResponseDto>(responseContent);
+            }
+            else
+            {
+                Console.WriteLine("Error: " + response.StatusCode);
+            }
+            return entityResponse.Result.Records;
+        }
 
         //private string GenerateRandomString(int length, bool numeric)
         //{
@@ -282,14 +315,19 @@ namespace SF.DocumentPoc
 
         //    return sb.ToString();
         //}
+        private void CreateReplacementTextForEntities()
+        {
+
+        }
 
         private string GenerateRandomString(string inputString)
         {
+            const string alphanumericChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
             const string alphabeticChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
             const string numericChars = "0123456789";
 
-            bool containsAlphabets = inputString.All(char.IsLetter);
-            bool containsNumbers = inputString.All(char.IsDigit);
+            bool containsAlphabets = inputString.Any(char.IsLetter);
+            bool containsNumbers = inputString.Any(char.IsDigit);
 
             if (containsAlphabets && !containsNumbers)
             {
@@ -303,8 +341,8 @@ namespace SF.DocumentPoc
             {
                 // If the inputString contains both alphabets and numbers, 
                 // choose randomly between alphanumeric and numeric characters
-                string chars = (new Random().Next(0, 2) == 0) ? alphabeticChars : numericChars;
-                return GenerateRandomStringOfType(chars, inputString.Length);
+                //string chars = (new Random().Next(0, 2) == 0) ? alphabeticChars : numericChars;
+                return GenerateRandomStringOfType(alphanumericChars, inputString.Length);
             }
         }
 
