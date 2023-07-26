@@ -36,7 +36,7 @@ namespace SF.DocumentPoc
             ApiKey = apiKey;
             ExcelFilePath = excelFilePath;
             DocNamePrefix = docNamePrefix;
-            License.LicenseKey = "IRONPDF.SIMPLIFAIAS.IRO230620.1722.98102-13A32F9432-DQTKC3VXVVK7K-6ZSYIRKXLXU3-SDI2XULXMSAI-337NJMOR2GW3-DYGQTHTSM77G-H2R7HH-LQZH3GPILE6UEA-IRONPDF.DOTNET.UNLIMITED.5YR-WZ6MO5.RENEW.SUPPORT.18.JUN.2028";
+            License.LicenseKey = "";
             switch (envChoice)
             {
                 case 1:
@@ -50,13 +50,6 @@ namespace SF.DocumentPoc
                     break;
             }
             DocNamePrefix = docNamePrefix;
-        }
-
-        public async Task TestIronPdf()
-        {
-            var validity = License.IsValidLicense("IRONPDF.SIMPLIFAIAS.IRO230620.1722.98102-13A32F9432-DQTKC3VXVVK7K-6ZSYIRKXLXU3-SDI2XULXMSAI-337NJMOR2GW3-DYGQTHTSM77G-H2R7HH-LQZH3GPILE6UEA-IRONPDF.DOTNET.UNLIMITED.5YR-WZ6MO5.RENEW.SUPPORT.18.JUN.2028");
-            using var PDFDocument = PdfDocument.FromFile(@"C:\Users\OmkarPatilKarade\Documents\Test\1-pdf\Test_1.pdf");
-            string AllText = PDFDocument.ExtractAllText();
         }
 
         public async Task ReadFromExcel()

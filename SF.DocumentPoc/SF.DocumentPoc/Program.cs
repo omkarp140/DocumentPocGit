@@ -46,5 +46,4 @@ var apiKey = "";
 var excelFilePath = "D:\\Others\\SF-Test\\DocumentPocGit\\Documents\\RajitTestData.xlsx";
 
 var test = new DocumentPocService(2, accessToken, documentbotId, 1, externalApiEndpoint, apiKey, excelFilePath, "SampleHello");
-//test.TestIronPdf();
 test.ReadFromExcel();
