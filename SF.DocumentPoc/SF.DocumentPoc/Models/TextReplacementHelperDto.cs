@@ -5,5 +5,6 @@
         public Guid EntityId { get; set; }
         public string OldText { get; set; }
         public string NewText { get; set; }
+        public string EntityType { get; set; }
     }
 }
