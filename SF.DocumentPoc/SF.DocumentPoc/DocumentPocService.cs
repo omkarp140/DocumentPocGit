@@ -1,7 +1,6 @@
 ﻿using Newtonsoft.Json;
 using OfficeOpenXml;
 using SF.DocumentPoc.Models;
-using System.Data.Common;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
@@ -16,7 +15,6 @@ namespace SF.DocumentPoc
         private readonly HttpClient _httpClient;
         string DocBotApiBaseUrl;
         string DocumentBotId;
-        //private readonly string NameEntityId = "fba3155d-01cd-4698-a6d9-d4dc6640adce";
         int DocumentCount = 0;
         string TemplateFilepath;
         string ExternalApiEndpointUrl;
@@ -60,7 +58,6 @@ namespace SF.DocumentPoc
 
             for (int colIndex = 1; colIndex < worksheet.Dimension.Columns; colIndex++)
             {
-                //var title = worksheet.Cells[1, colIndex].Value?.ToString();
                 entities.Find(e => e.Name.ToLower() == worksheet.Cells[1, colIndex].Value?.ToString().ToLower())!.ExcelIndex = colIndex;
             }
 
@@ -109,7 +106,6 @@ namespace SF.DocumentPoc
             var renderer = new ChromePdfRenderer();
             var pdf = renderer.RenderHtmlAsPdf(AllText);
 
-            //var documentName = $"PdfDynamicTest_{documentNo}.pdf";
             await using var ms = new MemoryStream(pdf.BinaryData);
             var botResponse = await SendDocumentToBot(pdf.BinaryData, documentName);
 
@@ -299,29 +295,7 @@ namespace SF.DocumentPoc
                 Console.WriteLine("Error: " + response.StatusCode);
             }
             return entityResponse.Result.Records;
-        }
-
-        //private string GenerateRandomString(int length, bool numeric)
-        //{
-        //    const string alphanumericChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-        //    const string numericChars = "0123456789";
-
-        //    var chars = numeric ? numericChars : alphanumericChars;
-        //    var random = new Random();
-        //    var sb = new StringBuilder(length);
-
-        //    for (int i = 0; i < length; i++)
-        //    {
-        //        int index = random.Next(0, chars.Length);
-        //        sb.Append(chars[index]);
-        //    }
-
-        //    return sb.ToString();
-        //}
-        private void CreateReplacementTextForEntities()
-        {
-
-        }
+        }        
 
         private string GenerateRandomString(string inputString)
         {
@@ -342,9 +316,6 @@ namespace SF.DocumentPoc
             }
             else
             {
-                // If the inputString contains both alphabets and numbers, 
-                // choose randomly between alphanumeric and numeric characters
-                //string chars = (new Random().Next(0, 2) == 0) ? alphabeticChars : numericChars;
                 return GenerateRandomStringOfType(alphanumericChars, inputString.Length);
             }
         }
