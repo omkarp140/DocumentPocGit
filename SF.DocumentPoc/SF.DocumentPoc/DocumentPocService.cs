@@ -1,7 +1,7 @@
 ﻿using Newtonsoft.Json;
 using OfficeOpenXml;
 using SF.DocumentPoc.Models;
-using System.Data.Common;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
@@ -14,15 +14,13 @@ namespace SF.DocumentPoc
         private static string IronPdfLicenseText = "To extract all of the page text, obtain a license key from https://ironpdf.com/licensing/";
 
         private readonly HttpClient _httpClient;
-        string DocBotApiBaseUrl;
-        string DocumentBotId;
-        //private readonly string NameEntityId = "fba3155d-01cd-4698-a6d9-d4dc6640adce";
-        int DocumentCount = 0;
-        string TemplateFilepath;
-        string ExternalApiEndpointUrl;
-        string ApiKey;
-        string ExcelFilePath;
-        string DocNamePrefix;
+        private string DocBotApiBaseUrl;
+        private string DocumentBotId;
+        private int DocumentCount = 0;
+        private string ExternalApiEndpointUrl;
+        private string ApiKey;
+        private string ExcelFilePath;
+        private string DocNamePrefix;
 
         public DocumentPocService(int envChoice, string accessToken, string documentbotId, int noOfDocuments, string externalApiEndpointUrl, string apiKey, string excelFilePath, string docNamePrefix)
         {
@@ -35,6 +33,7 @@ namespace SF.DocumentPoc
             ApiKey = apiKey;
             ExcelFilePath = excelFilePath;
             DocNamePrefix = docNamePrefix;
+            License.LicenseKey = "";
             switch (envChoice)
             {
                 case 1:
@@ -47,11 +46,11 @@ namespace SF.DocumentPoc
                     DocBotApiBaseUrl = "https://staging.simplifai.ai/da/api/documentbot";
                     break;
             }
-            DocNamePrefix = docNamePrefix;
         }
 
         public async Task ReadFromExcel()
         {
+            var sw = Stopwatch.StartNew();
             Console.WriteLine("\n\nProcess Started !!!\n\n");
             ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
             var excelPackage = new ExcelPackage(new FileInfo(ExcelFilePath));
@@ -60,59 +59,140 @@ namespace SF.DocumentPoc
 
             for (int colIndex = 1; colIndex < worksheet.Dimension.Columns; colIndex++)
             {
-                //var title = worksheet.Cells[1, colIndex].Value?.ToString();
                 entities.Find(e => e.Name.ToLower() == worksheet.Cells[1, colIndex].Value?.ToString().ToLower())!.ExcelIndex = colIndex;
             }
+            entities.RemoveAll(e => e.ExcelIndex == null || e.ExcelIndex == 0);
 
             for (int row = 2; row <= worksheet.Dimension.Rows; row++)
             {
-                TemplateFilepath = worksheet.Cells[row, worksheet.Dimension.Columns].Value?.ToString();
-                var textReplacementList = new List<TextReplacementHelperDto>();
-                var documentIds = new List<Guid>();
+                using var PDFDocument = PdfDocument.FromFile(worksheet.Cells[row, worksheet.Dimension.Columns].Value?.ToString());
+                string AllText = CleanTextAndHtmlNewLineCharacters(PDFDocument.ExtractAllText());
+                
+                var documents = new ConcurrentBag<NewDocument>();
 
-                for (int column = 1; column < worksheet.Dimension.Columns; column++)
+                Console.WriteLine($"\n\n*************--- FOR TEMPLATE {row - 1} ---*************\n\n");
+                Console.WriteLine("Document Creation Started");
+                var sw1 = Stopwatch.StartNew();
+                for (int i = 1; i <= DocumentCount; i++)
                 {
-                    textReplacementList.Add(new TextReplacementHelperDto
-                    {
-                        EntityId = entities.Find(e => e.ExcelIndex == column).Id,
-                        OldText = worksheet.Cells[row, column].Value?.ToString()
-                    });
-                }
+                    var textReplacementList = new ConcurrentBag<TextReplacementHelperDto>();
 
-                for(int i = 1; i <= DocumentCount; i++)
-                {
-                    var docuementId = await GenerateDocAndSendToBot(textReplacementList, i, $"{DocNamePrefix}_Template_{row-1}_Test_{i}.pdf");
-                    documentIds.Add(docuementId);
-
-                    if((DocumentCount - i)%100 == 0 || i == DocumentCount)
+                    for (int column = 1; column < worksheet.Dimension.Columns; column++)
                     {
-                        await MarkDocumentsAsCompleted(documentIds);
-                        documentIds.Clear();
+                        textReplacementList.Add(new TextReplacementHelperDto
+                        {
+                            EntityId = entities.Find(e => e.ExcelIndex == column).Id,
+                            OldText = worksheet.Cells[row, column].Value?.ToString()
+                        });
                     }
+
+                    var doc = await GenerateDocument(textReplacementList, AllText, $"{DocNamePrefix}_Template_{row - 1}_Test_{i}.pdf");
+                    documents.Add(doc);
                 }
+                sw1.Stop();
+                Console.WriteLine($"\nTime taken to generate {DocumentCount} documents of template {row-1} - {sw1.Elapsed.Seconds} (In Sec)");
+
+                Console.WriteLine($"\nSending documents of template - {row - 1} to bot and tagging\n");
+                var sw4 = Stopwatch.StartNew();
+                var documentIds = await SendToBotAndTag(documents);
+                await MarkComplete(documentIds);
+                sw4.Stop();
+                Console.WriteLine($"\nTime taken to send & tag {DocumentCount} documents of template {row - 1} - {sw4.Elapsed.Minutes} (In Min)");
+
             }
+            sw.Stop();
+            Console.WriteLine("**************----- FINAL -----**************");
+            Console.WriteLine($"\n\nTime taken to send {DocumentCount * (worksheet.Dimension.Rows - 1)} documents - {sw.Elapsed.Minutes} (In Min)\n\n");
         }
 
-        public async Task<Guid> GenerateDocAndSendToBot(List<TextReplacementHelperDto> textReplacementList, int documentNo, string documentName)
+        private async Task MarkComplete(List<Guid> documentIds)
         {
-            var sw = Stopwatch.StartNew();
+            int batchSize = 200;
+            int totalBatches = (int)Math.Ceiling((double)documentIds.Count/batchSize);
+            for(int batchNumber = 0; batchNumber < totalBatches; batchNumber++)
+            {
+                var batchDocumentIds = documentIds.Skip(batchNumber * batchSize).Take(batchSize).ToList();
+                var result = await MarkDocumentsAsCompleted(batchDocumentIds);
+            }
 
-            using var PDFDocument = PdfDocument.FromFile(TemplateFilepath);
-            string AllText = CleanTextAndHtmlNewLineCharacters(PDFDocument.ExtractAllText());
+        }
 
-            foreach(var entity in textReplacementList)
+        public async Task<NewDocument> GenerateDocument(ConcurrentBag<TextReplacementHelperDto> textReplacementList, string documentText, string documentName)
+        {
+            foreach (var entity in textReplacementList)
             {
                 entity.NewText = GenerateRandomString(entity.OldText);
-                AllText = AllText.Replace(entity.OldText, entity.NewText);
+                documentText = documentText.Replace(entity.OldText, entity.NewText);
             }
 
             var renderer = new ChromePdfRenderer();
-            var pdf = renderer.RenderHtmlAsPdf(AllText);
+            var pdf = renderer.RenderHtmlAsPdf(documentText);
 
-            //var documentName = $"PdfDynamicTest_{documentNo}.pdf";
-            await using var ms = new MemoryStream(pdf.BinaryData);
-            var botResponse = await SendDocumentToBot(pdf.BinaryData, documentName);
+            return new NewDocument()
+            {
+                BinaryData = pdf.BinaryData,
+                FileName = documentName,
+                TextReplacementList = textReplacementList
+            };
+        }
 
+        private async Task<List<Guid>> SendToBotAndTag(ConcurrentBag<NewDocument> documents)
+        {
+            var documentIds = new List<Guid>();
+            ParallelOptions options = new() { MaxDegreeOfParallelism = Environment.ProcessorCount / 2 };
+            Parallel.ForEach(documents, options, async (document, ct) =>
+            {
+                var botResponse = await SendDocumentToBot(document.BinaryData, document.FileName);
+                var documentDetails = await GetSingleDocumentDetails(document.FileName);
+
+                var entities = new List<DocumentEntityTaggedReadDto>();
+                var intents = new List<DocumentIntentTaggedReadDto>();
+
+                foreach (var item in document.TextReplacementList)
+                {
+                    var wordIds = new List<int>();
+
+                    wordIds.Add(documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == item.NewText).WordId);
+                    var word = documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == item.NewText);
+
+                    string entityValue = "";
+
+                    foreach (var wordId in wordIds)
+                    {
+                        entityValue = entityValue + documentDetails.Result.DocumentJson.Pages[0].WordLevel[wordId].Text + documentDetails.Result.DocumentJson.Pages[0].WordLevel[wordId].Space;
+                    }
+
+                    entities.Add(new DocumentEntityTaggedReadDto
+                    {
+                        EntityId = item.EntityId,
+                        WordIds = wordIds,
+                        Value = entityValue,
+                        TaggedAuthor = 0,
+                        DocumentId = documentDetails.Result.Id,
+                    });
+                }
+
+                var updateDocumentDetailsRequest = new UpdateDocumentDetailsDto()
+                {
+                    DocumentTypeId = documentDetails.Result.TaggedData.DocumentTypeLink[0].DocumentTypeId,
+                    DocumentTaggedDto = new DocumentTaggedDto()
+                    {
+                        EntitiesTagged = entities,
+                        IntentsTagged = intents,
+                        DocumentTypeLink = documentDetails.Result.TaggedData.DocumentTypeLink
+                    }
+                };
+
+                await TagDocument(JsonConvert.SerializeObject(updateDocumentDetailsRequest), documentDetails.Result.Id);
+                documentIds.Add(documentDetails.Result.Id);
+                Console.WriteLine($"Sent to bot - {document.FileName}");
+
+            });
+            return documentIds;
+        }
+
+        private async Task<DocumentDetailsResponseDto> GetSingleDocumentDetails(string documentName)
+        {
             var documentSearchRequestDto = new GetDocumentRequestDto()
             {
                 SearchText = documentName,
@@ -124,43 +204,7 @@ namespace SF.DocumentPoc
 
             var searchResult = await SearchForDocumentId(JsonConvert.SerializeObject(documentSearchRequestDto));
             var documentId = searchResult.Result.Records[0].Id;
-            var documentDetails = await GetDocumentDetails(documentId);
-
-            var entities = new List<DocumentEntityTaggedReadDto>();
-            var intents = new List<DocumentIntentTaggedReadDto>();
-
-            foreach(var item in textReplacementList)
-            {
-                var wordIds = new List<int>();
-                wordIds.Add(documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == item.NewText).WordId);
-                var word = documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == item.NewText);
-
-                entities.Add(new DocumentEntityTaggedReadDto
-                {
-                    EntityId = item.EntityId,
-                    WordIds = wordIds,
-                    Value = word.Text + word.Space,
-                    TaggedAuthor = 0,
-                    DocumentId = documentId,
-                });
-            }
-
-            var updateDocumentDetailsRequest = new UpdateDocumentDetailsDto()
-            {
-                DocumentTypeId = documentDetails.Result.TaggedData.DocumentTypeLink[0].DocumentTypeId,
-                DocumentTaggedDto = new DocumentTaggedDto()
-                {
-                    EntitiesTagged = entities,
-                    IntentsTagged = intents,
-                    DocumentTypeLink = documentDetails.Result.TaggedData.DocumentTypeLink
-                }
-            };
-
-            await TagDocument(JsonConvert.SerializeObject(updateDocumentDetailsRequest), documentId);
-            
-            sw.Stop();
-            Console.WriteLine($"process completed for document - {documentNo} - {sw.Elapsed.Seconds}");
-            return documentId;
+            return await GetDocumentDetails(documentId);
         }
 
         private static string CleanTextAndHtmlNewLineCharacters(string originalString)
@@ -299,29 +343,7 @@ namespace SF.DocumentPoc
                 Console.WriteLine("Error: " + response.StatusCode);
             }
             return entityResponse.Result.Records;
-        }
-
-        //private string GenerateRandomString(int length, bool numeric)
-        //{
-        //    const string alphanumericChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-        //    const string numericChars = "0123456789";
-
-        //    var chars = numeric ? numericChars : alphanumericChars;
-        //    var random = new Random();
-        //    var sb = new StringBuilder(length);
-
-        //    for (int i = 0; i < length; i++)
-        //    {
-        //        int index = random.Next(0, chars.Length);
-        //        sb.Append(chars[index]);
-        //    }
-
-        //    return sb.ToString();
-        //}
-        private void CreateReplacementTextForEntities()
-        {
-
-        }
+        }        
 
         private string GenerateRandomString(string inputString)
         {
@@ -342,9 +364,6 @@ namespace SF.DocumentPoc
             }
             else
             {
-                // If the inputString contains both alphabets and numbers, 
-                // choose randomly between alphanumeric and numeric characters
-                //string chars = (new Random().Next(0, 2) == 0) ? alphabeticChars : numericChars;
                 return GenerateRandomStringOfType(alphanumericChars, inputString.Length);
             }
         }
