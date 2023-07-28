@@ -39,10 +39,10 @@ Console.WriteLine("Hello!!!");
 
 
 var accessToken = "";
-var documentbotId = "870c838e-e450-4d79-8d97-2d89bb3ee237";
-var externalApiEndpoint = "https://qa.simplifai.ai/da/externalapi/documentbot/870c838e-e450-4d79-8d97-2d89bb3ee237/ExternalDocumentProcessing/FromFiles?CustomerId=10468b3e-ea02-4f95-8273-479ae3a58d85";
+var documentbotId = "11f723d3-2520-4d90-a8c1-c3479817e1bd";
+var externalApiEndpoint = "https://qa.simplifai.ai/da/externalapi/documentbot/11f723d3-2520-4d90-a8c1-c3479817e1bd/ExternalDocumentProcessing/FromFiles?CustomerId=10468b3e-ea02-4f95-8273-479ae3a58d85";
 var apiKey = "";
-var excelFilePath = "D:\\Others\\SF-Test\\DocumentPocGit\\Documents\\MultiEntity.xlsx";
+var excelFilePath = "C:\\Users\\OmkarPatilKarade\\Documents\\DocumentPocGit\\Documents\\RajitTestData.xlsx";
 
-var test = new DocumentPocService(2, accessToken, documentbotId, 25, externalApiEndpoint, apiKey, excelFilePath, "Summer3");
+var test = new DocumentPocService(2, accessToken, documentbotId, 5, externalApiEndpoint, apiKey, excelFilePath, "Parallel3");
 test.ReadFromExcel();

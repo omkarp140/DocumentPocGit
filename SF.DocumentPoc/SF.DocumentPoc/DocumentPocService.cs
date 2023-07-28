@@ -82,7 +82,8 @@ namespace SF.DocumentPoc
                         textReplacementList.Add(new TextReplacementHelperDto
                         {
                             EntityId = entities.Find(e => e.ExcelIndex == column).Id,
-                            OldText = worksheet.Cells[row, column].Value?.ToString()
+                            OldText = worksheet.Cells[row, column].Value?.ToString(),
+                            EntityType = entities.Find(e => e.ExcelIndex == column).Name
                         });
                     }
 
@@ -121,7 +122,12 @@ namespace SF.DocumentPoc
         {
             foreach (var entity in textReplacementList)
             {
-                entity.NewText = GenerateRandomString(entity.OldText);
+                if (entity.EntityType == "Designation")
+                {
+                    continue;
+                }
+                //entity.NewText = GenerateRandomString(entity.OldText);
+                entity.NewText = GenerateRandomData(entity.EntityType);
                 documentText = documentText.Replace(entity.OldText, entity.NewText);
             }
 
@@ -148,12 +154,60 @@ namespace SF.DocumentPoc
                 var entities = new List<DocumentEntityTaggedReadDto>();
                 var intents = new List<DocumentIntentTaggedReadDto>();
 
+                var intentWordIds = new List<int>() { 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 };
+
+                string intentValue = "";
+
+                foreach (var wordId in intentWordIds)
+                {
+                    intentValue = intentValue + documentDetails.Result.DocumentJson.Pages[0].WordLevel[wordId].Text + documentDetails.Result.DocumentJson.Pages[0].WordLevel[wordId].Space;
+                }
+
+                intents.Add(new DocumentIntentTaggedReadDto()
+                {
+                    IntentId = new Guid("c18b3fa8-694e-40d7-baac-bb3ce3ef4035"),
+                    WordIds = intentWordIds,
+                    TaggedAuthor = 1,
+                    DocumentId = documentDetails.Result.Id,
+                    Value = intentValue
+                });
+
                 foreach (var item in document.TextReplacementList)
                 {
                     var wordIds = new List<int>();
 
-                    wordIds.Add(documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == item.NewText).WordId);
-                    var word = documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == item.NewText);
+                    if (Enum.TryParse(item.EntityType, out RandomDataType dataType))
+                    {
+                        switch (dataType)
+                        {
+                            case RandomDataType.Name:
+                                wordIds = new List<int>() { 5 };
+                                break;
+
+                            case RandomDataType.EmailId:
+                                wordIds = new List<int>() { 73, 74, 75, 76, 77, 78, 79 };
+                                break;
+
+                            case RandomDataType.Address:
+                                wordIds = new List<int>() { 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165 };
+                                break;
+
+                            case RandomDataType.Date:
+                                wordIds = new List<int>() { 65, 66, 67, 68, 69 };
+                                break;
+
+                            case RandomDataType.UserId:
+                                wordIds = new List<int>() { 83 };
+                                break;
+
+                            case RandomDataType.MobileNo:
+                                wordIds = new List<int>() { 58, 59, 60 };
+                                break;
+                        }
+                    }
+
+                    //wordIds.Add(documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == item.NewText).WordId);
+                    //var word = documentDetails.Result.DocumentJson.Pages[0].WordLevel.Find(w => w.Text == item.NewText);
 
                     string entityValue = "";
 
@@ -167,10 +221,20 @@ namespace SF.DocumentPoc
                         EntityId = item.EntityId,
                         WordIds = wordIds,
                         Value = entityValue,
-                        TaggedAuthor = 0,
+                        TaggedAuthor = 1,
                         DocumentId = documentDetails.Result.Id,
                     });
                 }
+
+                entities.Add(new DocumentEntityTaggedReadDto()
+                {
+                    EntityId = new Guid("69e53a81-5407-480e-917d-68e33a85fd20"),
+                    Value = "Data Engineer",
+                    WordIds = new List<int>() { 169, 170 },
+                    TaggedAuthor = 1,
+                    DocumentId = documentDetails.Result.Id
+
+                });
 
                 var updateDocumentDetailsRequest = new UpdateDocumentDetailsDto()
                 {
@@ -381,5 +445,136 @@ namespace SF.DocumentPoc
 
             return sb.ToString();
         }
+
+        private string GenerateRandomData(string randomDataType)
+        {
+            var _random = new Random();
+            var nameOptions = new string[] { "Aarav", "Aanya", "Gagan", "Diya", "Aryan", "Mira", "Devan", "Elina", "Gauti", "Janvi",
+                                            "Kunal", "Ishna", "Preet", "Trish", "Mohit", "Nehal", "Mukul", "Pooja", "Kiran", "Priya",
+                                            "Rakes", "Shana", "Rahul", "Sakhi", "Alok", "Simmi", "Vikas", "Tanvi", "Sagar", "Tina",
+                                            "Samir", "Tisha", "Amol", "Yammi", "Sunny", "Zara", "Siddh", "Anika", "Yuvan", "Ishaa",
+                                            "Aashi", "Rishi", "Drishti", "Lucky", "Roopa", "Sahil", "Juhi", "Vishu", "Naina", "Aarti",
+                                            "Rahil", "Mansi", "Shiva", "Anaya", "Rishi", "Pari", "Jaiya", "Nikku", "Samar", "Aisha",
+                                            "Ankit", "Aaroh", "Faiza", "Jyoti", "Vedha", "Lisha", "Rohit", "Mithu", "Raman", "Ishra",
+                                            "Manny", "Dinky", "Suman", "Swati", "Preet", "Anuva", "Rohan", "Hansa", "Pinky", "Misha",
+                                            "Varun", "Yashi", "Saara", "Kavya", "Zaina", "Rishu", "Nihar", "Hemal", "Jatin", "Sange",
+                                            "Shalu", "Vicky", "Bhavy", "Deepa", "Rahul", "Mansi", "Vinit", "Nidhi", "Ashna", "Vikku",
+                                            "Aaran", "Aaren", "Aarez", "Aarman", "Aaron", "Aarron", "Aaryan", "Aaryn", "Aayan", "Aazaan", "Abaan", "Abbas"};
+
+            var emailHelperOptions = new string[] { ".", "_" };
+
+            var emailExt = new string[] { "@gmail.com", "@outlook.com", "@icloud.com", "@yahoo.com", "@simplifai.ai", "@hotmail.com",
+                                          "@aol.com", "@protonmail.com", "@mail.com", "@zoho.com", "@yandex.com", "@fastmail.com",
+                                          "@rediffmail.com", "@gmx.com", "@mailinator.com", "@inbox.com", "@rocketmail.com", "@yahoo.co.uk",
+                                          "@outlook.in", "@live.com", "@yopmail.com", "@tutanota.com", "@mail.ru" };
+
+            var prefixes = new string[] { "Evo", "Lunar", "Zephyr", "Chrono", "Sol", "Inferno", "Cryo", "Seren", "Vortex", "Aurora",
+                                               "Blaze", "Volt", "Celestial", "Tempest", "Sapphire", "Radiant", "Dynamo", "Ember", "Thunder",
+                                               "Galaxy", "Mystic", "Nebula", "Astral", "Haze", "Crimson", "Zodiac", "Orbit", "Luminous",
+                                               "Eclipse", "Quasar", "Whirlwind", "Pulsar", "Spectral", "Enigma", "Frost", "Stellar", "Solar",
+                                               "Lithium", "Plasma", "Aether", "Comet", "Electron", "Eternal", "Fusion", "Nuclear", "Synth",
+                                               "Umbra", "Venom", "Zenith" };
+
+            var buildingNames = new string[] { "Sky Tower", "City Center", "Liberty Plaza", "Tech Park", "Crystal Heights", "Summit Place",
+                                               "Harmony Gardens", "Emerald View", "Innovation Hub", "Ocean View", "Horizon Square", "Sunrise Court",
+                                               "Evergreen Estate", "Golden Gate", "Diamond Ridge", "Sunlight Gardens", "Lakeside Manor",
+                                               "Crown Plaza", "Maple Grove", "Silver Oaks", "Riverfront Court", "Palm Paradise", "Bayside Residences",
+                                               "Grand Boulevard", "Harbor Point", "Whispering Pines", "Vista Valley", "Meadowbrook Village",
+                                               "Parkside Terrace", "Azure Heights", "Serenity Springs", "Marina Shores", "Mountain View", "Twin Oaks",
+                                               "Majestic Gardens", "Birchwood Place", "Regal Ridge", "Sapphire Meadows", "Willowbrook Estate", "Tranquil Haven",
+                                               "Amber Ridge", "Hillcrest Court", "Ocean Breeze", "Harvest Fields", "Royal Reserve", "Greenfield Heights", "Breezy Heights" };
+
+            var areaNames = new string[] { "Bandra", "Juhu", "Koramangala", "Malad", "Connaught", "Andheri", "Saket", "Alipore", "Banjara", "Fort",
+                                           "Chelsea", "Venice", "Copacabana", "Camden", "Montmartre", "Malabar", "Marais", "Pudong", "Darlinghurst",
+                                           "Georgetown", "Wynwood", "Montecito", "Shinjuku", "Gracia", "Thamel", "Vesterbro", "Fitzroy", "Kreuzberg",
+                                           "Shoreditch", "Södermalm", "Gastown", "Palermo", "Kiyosumi", "Frelard", "Grünerløkka", "Xuhui", "Cihangir",
+                                           "Haga", "Kallio", "Miraflores", "Sheung", "Gion", "Kypseli", "Thonglor", "Kalamaja", "Salthill", "Greenpoint" };
+
+            var cityNames = new string[] { "Delhi", "Mumbai", "Pune", "Salem", "Indore", "Agra", "Patna", "Ranchi", "Bhopal", "Surat",
+                                           "Ajmer", "Latur", "Sagar", "Bikaner", "Kolar", "Hinda", "Adoni", "Baram", "Hosur", "Kapur",
+                                           "Gonda", "Lanka", "Anand", "Sindh", "Hansi", "Rajah", "Ropar", "Nizam", "Mauni", "Deesa",
+                                           "Mundi", "Chitt", "Basti", "Mandi", "Kadap", "Pilib", "Raiga", "Dharm", "Mursh", "Jhars",
+                                           "Tiruv", "Bhadr", "Girid", "Nager", "Katra", "Kasau", "Sawai", "Hosur", "Bhadr", "Nawas",
+                                           "Delhi", "Mumbai", "Pune", "Salem", "Indore", "Agra", "Patna", "Ranchi", "Bhopal", "Surat",
+                                           "Ajmer", "Latur", "Sagar", "Bikaner", "Kolar", "Hinda", "Adoni", "Baram", "Hosur", "Kapur",
+                                           "Gonda", "Lanka", "Anand", "Sindh", "Hansi", "Rajah", "Ropar", "Nizam", "Mauni", "Deesa",
+                                           "Mundi", "Chitt", "Basti", "Mandi", "Kadap", "Pilib", "Raiga", "Dharm", "Mursh", "Jhars",
+                                           "Tiruv", "Bhadr", "Girid", "Nager", "Katra", "Kasau", "Sawai", "Hosur", "Bhadr", "Nawas",
+                                           "Hangzhou", "Kingston", "Valletta", "Salvador", "Surabaya", "Adelaide", "Hamilton", "Lausanne",
+                                           "Brisbane", "Beijing", "Sofia", "Managua", "Belgrade", "Tbilisi", "Bogota", "Marrakech", "Marbella",
+                                           "Florence", "Pretoria", "Canberra", "Helsinki", "Detroit", "Colombo", "Houston", "Nairobi", "Medellin",
+                                           "Casablanca", "Hangzhou", "Curitiba", "Santiago", "NewYork","London","Tokyo","Paris","Mumbai",
+                                           "Sydney","Shanghai","CapeTown","Rio","Barcelona","LosAngeles","HongKong","Berlin","Amsterdam",
+                                           "Singapore","Rome","Toronto","Dubai","Seoul","Vienna","Stockholm","SanFrancisco","Prague",
+                                           "Budapest","Bangkok","Copenhagen","Moscow","Dublin","Zurich","Wellington","Amman","Helsinki",
+                                           "Reykjavik","Oslo","Jerusalem","KualaLumpur","Lisbon","Montreal","Warsaw","Athens","Nairobi",
+                                           "Auckland","Cairo","BuenosAires","Delhi","Jakarta","Johannesburg","MexicoCity","Riyadh"};
+
+
+
+            if (Enum.TryParse(randomDataType, out RandomDataType dataType))
+            {
+                switch (dataType)
+                {
+                    case RandomDataType.Name:
+                        return nameOptions[_random.Next(0, nameOptions.Length)];
+
+                    case RandomDataType.EmailId:
+                        var emailId = $"{nameOptions[_random.Next(0, nameOptions.Length)].ToLower()}{emailHelperOptions[_random.Next(0, emailHelperOptions.Length)]}{prefixes[_random.Next(0, prefixes.Length)].ToLower()}{_random.Next(0, 999)}{emailExt[_random.Next(0, emailExt.Length)]}";
+                        return emailId;
+
+                    case RandomDataType.Address:
+                        var address = $"{_random.Next(100, 999)}, {buildingNames[_random.Next(0, buildingNames.Length)]}, {areaNames[_random.Next(0, areaNames.Length)]}, {cityNames[_random.Next(0, cityNames.Length)]} - {_random.Next(100000, 999999)}.";
+                        return address;
+
+                    case RandomDataType.Date:
+
+                        var randomDate = RandomDateTime(new DateTime(1990, 1, 1), DateTime.Now).AddDays(-1);
+                        string[] dateFormats = new string[]
+                        {
+                            "dd/MM/yyyy",
+                            "MM/dd/yyyy",
+                            "yyyy-MM-dd",
+                            "dd-MMM-yyyy",
+                            "yyyy/MM/dd",
+                            "dd-MMMM-yyyy",
+                            "MMMM-dd, yyyy"
+                        };
+                        return randomDate.ToString(dateFormats[_random.Next(0, dateFormats.Length)]);
+
+                    case RandomDataType.UserId:
+                        var userId = $"{prefixes[_random.Next(0, prefixes.Length)]}{_random.Next(0, 1000)}";
+                        return userId;
+
+                    case RandomDataType.MobileNo:
+                        var mobileNo = $"+{_random.Next(0, 99)} {GenerateRandomStringOfType("0123456789", 10)}";
+                        return mobileNo;
+
+                    default:
+                        return "Unknown Data Type";
+                }
+            }
+            else
+            {
+                return "Invalid Data Type";
+            }
+        }
+
+        public static DateTime RandomDateTime(DateTime startDate, DateTime endDate)
+        {
+            Random random = new Random();
+            int range = (endDate - startDate).Days;
+            return startDate.AddDays(random.Next(range));
+        }
+    }
+
+    public enum RandomDataType
+    {
+        Name = 1,
+        EmailId = 2,
+        Address = 3,
+        Date = 4,
+        UserId = 5,
+        MobileNo = 6
     }
 }
